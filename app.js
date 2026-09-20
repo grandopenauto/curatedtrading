@@ -1,0 +1,252 @@
+const API_BASE = 'https://api.curatedtrading.com';
+
+const state = {
+  mode: 'featured',
+  query: '',
+  lane: '',
+  offset: 0,
+  nextOffset: null,
+  hasMore: false,
+  loading: false,
+  items: new Map()
+};
+
+const els = {
+  status: document.querySelector('#api-status'),
+  form: document.querySelector('#hero-search'),
+  query: document.querySelector('#hero-query'),
+  title: document.querySelector('#market-title'),
+  grid: document.querySelector('#market-grid'),
+  message: document.querySelector('#market-message'),
+  minPrice: document.querySelector('#min-price'),
+  refresh: document.querySelector('#refresh-market'),
+  more: document.querySelector('#load-more'),
+  dialog: document.querySelector('#detail-dialog'),
+  dialogContent: document.querySelector('#detail-content'),
+  dialogClose: document.querySelector('#detail-close')
+};
+
+document.querySelector('#year').textContent = new Date().getFullYear();
+
+function money(price) {
+  if (!price || price.value == null) return 'Price unavailable';
+  const value = Number(price.value);
+  if (!Number.isFinite(value)) return `${price.value} ${price.currency || ''}`.trim();
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: price.currency || 'USD',
+      maximumFractionDigits: value >= 1000 ? 0 : 2
+    }).format(value);
+  } catch {
+    return `$${value.toLocaleString()}`;
+  }
+}
+
+function safe(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function itemLocation(item) {
+  const loc = item.itemLocation || {};
+  return [loc.city, loc.stateOrProvince, loc.country].filter(Boolean).join(', ') || 'Location varies';
+}
+
+async function request(path) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(25000)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.message || payload.error || `Marketplace request failed (${response.status})`);
+  return payload;
+}
+
+function setApiState(mode, label) {
+  els.status.classList.remove('live', 'down');
+  if (mode) els.status.classList.add(mode);
+  els.status.innerHTML = `<i></i>${safe(label)}`;
+}
+
+async function checkHealth() {
+  try {
+    const health = await request('/health');
+    setApiState('live', `${health.environment === 'production' ? 'live' : health.environment} marketplace`);
+    return true;
+  } catch {
+    setApiState('down', 'marketplace staging');
+    return false;
+  }
+}
+
+function renderCard(item) {
+  const id = String(item.id || crypto.randomUUID());
+  state.items.set(id, item);
+  const score = Math.round(Number(item.curatedScore || 0));
+  const lane = item.curatedLane || item.lane || 'Curated find';
+  const image = item.image || item.imageUrl || '';
+  const location = itemLocation(item);
+  const outbound = item.affiliateUrl || item.itemWebUrl || '#';
+  return `
+    <article class="item-card">
+      <div class="item-image">
+        ${image ? `<img src="${safe(image)}" alt="${safe(item.title)}" loading="lazy" referrerpolicy="no-referrer" />` : ''}
+        <span class="score">CURATED <b>${score || '—'}</b></span>
+      </div>
+      <div class="item-body">
+        <span class="item-lane">${safe(lane)}</span>
+        <h3 class="item-title">${safe(item.title || 'Marketplace discovery')}</h3>
+        <div class="item-meta">
+          <span class="item-price">${safe(money(item.price))}</span>
+          <span class="item-location">${safe(location)}</span>
+        </div>
+        <div class="item-actions">
+          <button class="details-btn" data-detail-id="${safe(id)}">Details</button>
+          <a class="ebay-btn" href="${safe(outbound)}" target="_blank" rel="noopener sponsored">View listing</a>
+        </div>
+      </div>
+    </article>`;
+}
+
+function bindDetailButtons() {
+  document.querySelectorAll('[data-detail-id]').forEach((button) => {
+    button.addEventListener('click', () => openDetail(state.items.get(button.dataset.detailId)));
+  });
+}
+
+function openDetail(item) {
+  if (!item) return;
+  const image = item.image || item.imageUrl || '';
+  const signals = Array.isArray(item.curatedSignals) ? item.curatedSignals.join(' · ') : 'Curated marketplace match';
+  const options = Array.isArray(item.buyingOptions) ? item.buyingOptions.join(', ') : 'See listing';
+  const seller = item.seller?.username || 'Marketplace seller';
+  const condition = item.condition || 'See listing';
+  const outbound = item.affiliateUrl || item.itemWebUrl || '#';
+  els.dialogContent.innerHTML = `
+    <div class="detail-layout">
+      <div class="detail-media">${image ? `<img src="${safe(image)}" alt="${safe(item.title)}" referrerpolicy="no-referrer" />` : ''}</div>
+      <div class="detail-info">
+        <p class="eyebrow">${safe((item.curatedLane || 'CURATED DISCOVERY').toUpperCase())}</p>
+        <h3>${safe(item.title || 'Marketplace discovery')}</h3>
+        <div class="detail-price">${safe(money(item.price))}</div>
+        <p>${safe(signals)}</p>
+        <div class="detail-list">
+          <div><small>Curated score</small><strong>${safe(Math.round(Number(item.curatedScore || 0)))} / 100</strong></div>
+          <div><small>Condition</small><strong>${safe(condition)}</strong></div>
+          <div><small>Seller</small><strong>${safe(seller)}</strong></div>
+          <div><small>Buying format</small><strong>${safe(options)}</strong></div>
+          <div><small>Location</small><strong>${safe(itemLocation(item))}</strong></div>
+          <div><small>Source</small><strong>eBay marketplace</strong></div>
+        </div>
+        <a class="detail-ebay" href="${safe(outbound)}" target="_blank" rel="noopener sponsored">Inspect original listing →</a>
+      </div>
+    </div>`;
+  els.dialog.showModal();
+}
+
+function setLoading(on, text = 'Loading curated inventory…') {
+  state.loading = on;
+  els.message.textContent = text;
+  els.refresh.disabled = on;
+  els.more.disabled = on;
+}
+
+function buildPath({ append = false } = {}) {
+  const min = Number(els.minPrice.value || 0);
+  if (state.mode === 'featured') {
+    return `/api/commerce/curated/featured?min_price=${min}&limit=16`;
+  }
+  const params = new URLSearchParams();
+  if (state.query) params.set('q', state.query);
+  if (state.lane) params.set('lane', state.lane);
+  params.set('min_price', String(min));
+  params.set('limit', '16');
+  params.set('offset', String(append ? state.nextOffset || 0 : 0));
+  return `/api/commerce/curated/search?${params.toString()}`;
+}
+
+async function loadMarket({ append = false } = {}) {
+  if (state.loading) return;
+  setLoading(true, append ? 'Loading more discoveries…' : 'Scanning marketplace inventory…');
+  if (!append) {
+    state.offset = 0;
+    state.nextOffset = null;
+    state.hasMore = false;
+    state.items.clear();
+  }
+  try {
+    const payload = await request(buildPath({ append }));
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const html = items.map(renderCard).join('');
+    if (append) els.grid.insertAdjacentHTML('beforeend', html);
+    else els.grid.innerHTML = html;
+    bindDetailButtons();
+    state.nextOffset = payload.nextOffset ?? null;
+    state.hasMore = Boolean(payload.hasMore && payload.nextOffset != null);
+    els.more.hidden = !state.hasMore;
+    const sourceTotal = payload.sourceTotal != null ? ` from ${Number(payload.sourceTotal).toLocaleString()} source matches` : '';
+    els.message.textContent = items.length ? `${items.length}${append ? ' more' : ''} curated discoveries${sourceTotal}.` : 'No clean matches at this threshold. Try a lower minimum value or another lane.';
+    setApiState('live', `${payload.environment || 'live'} marketplace`);
+  } catch (error) {
+    if (!append) els.grid.innerHTML = '';
+    els.more.hidden = true;
+    els.message.textContent = 'The CuratedTrading marketplace engine is staged. Live inventory will appear here as soon as the API endpoint is online.';
+    setApiState('down', 'marketplace staging');
+    console.warn(error);
+  } finally {
+    state.loading = false;
+    els.refresh.disabled = false;
+    els.more.disabled = false;
+  }
+}
+
+function runQuery(query) {
+  state.mode = 'search';
+  state.query = query.trim();
+  state.lane = '';
+  els.query.value = state.query;
+  els.title.textContent = state.query ? `Curated results: ${state.query}` : 'Curated marketplace discoveries';
+  document.querySelector('#market').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  loadMarket();
+}
+
+function runLane(lane, label) {
+  state.mode = 'search';
+  state.query = '';
+  state.lane = lane;
+  els.query.value = '';
+  els.title.textContent = label || 'Curated lane';
+  document.querySelector('#market').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  loadMarket();
+}
+
+els.form.addEventListener('submit', (event) => {
+  event.preventDefault();
+  runQuery(els.query.value);
+});
+
+document.querySelectorAll('.quick-links [data-query]').forEach((button) => {
+  button.addEventListener('click', () => runQuery(button.dataset.query || ''));
+});
+
+document.querySelectorAll('.lane-card[data-lane]').forEach((button) => {
+  button.addEventListener('click', () => runLane(button.dataset.lane, button.querySelector('strong')?.textContent));
+});
+
+els.refresh.addEventListener('click', () => loadMarket());
+els.minPrice.addEventListener('change', () => loadMarket());
+els.more.addEventListener('click', () => loadMarket({ append: true }));
+els.dialogClose.addEventListener('click', () => els.dialog.close());
+els.dialog.addEventListener('click', (event) => {
+  if (event.target === els.dialog) els.dialog.close();
+});
+
+(async function boot() {
+  await checkHealth();
+  await loadMarket();
+})();
