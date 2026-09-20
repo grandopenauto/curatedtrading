@@ -1,4 +1,5 @@
 const API_BASE = 'https://api.curatedtrading.com';
+const APP_VERSION = '1.0.1';
 
 const state = {
   mode: 'featured',
@@ -57,14 +58,38 @@ function itemLocation(item) {
   return [loc.city, loc.stateOrProvince, loc.country].filter(Boolean).join(', ') || 'Location varies';
 }
 
-async function request(path) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(25000)
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.message || payload.error || `Marketplace request failed (${response.status})`);
-  return payload;
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function request(path, { retries = 2, timeoutMs = 30000 } = {}) {
+  let lastError;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(`${API_BASE}${path}`, {
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+        credentials: 'omit',
+        signal: controller.signal
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.message || payload.error || `Marketplace request failed (${response.status})`);
+      }
+      return payload;
+    } catch (error) {
+      lastError = error;
+      if (attempt < retries) await sleep(350 * (attempt + 1));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  throw lastError || new Error('Marketplace request failed');
 }
 
 function setApiState(mode, label) {
@@ -75,17 +100,17 @@ function setApiState(mode, label) {
 
 async function checkHealth() {
   try {
-    const health = await request('/health');
+    const health = await request('/health', { retries: 1, timeoutMs: 12000 });
     setApiState('live', `${health.environment === 'production' ? 'live' : health.environment} marketplace`);
     return true;
-  } catch {
-    setApiState('down', 'marketplace staging');
+  } catch (error) {
+    console.warn('CuratedTrading health check failed', error);
     return false;
   }
 }
 
 function renderCard(item) {
-  const id = String(item.id || crypto.randomUUID());
+  const id = String(item.id || (globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`));
   state.items.set(id, item);
   const score = Math.round(Number(item.curatedScore || 0));
   const lane = item.curatedLane || item.lane || 'Curated find';
@@ -180,7 +205,7 @@ async function loadMarket({ append = false } = {}) {
     state.items.clear();
   }
   try {
-    const payload = await request(buildPath({ append }));
+    const payload = await request(buildPath({ append }), { retries: 2, timeoutMs: 30000 });
     const items = Array.isArray(payload.items) ? payload.items : [];
     const html = items.map(renderCard).join('');
     if (append) els.grid.insertAdjacentHTML('beforeend', html);
@@ -195,9 +220,9 @@ async function loadMarket({ append = false } = {}) {
   } catch (error) {
     if (!append) els.grid.innerHTML = '';
     els.more.hidden = true;
-    els.message.textContent = 'The CuratedTrading marketplace engine is staged. Live inventory will appear here as soon as the API endpoint is online.';
-    setApiState('down', 'marketplace staging');
-    console.warn(error);
+    els.message.textContent = 'Marketplace connection interrupted. Tap Refresh to reconnect to live inventory.';
+    setApiState('down', 'marketplace reconnecting');
+    console.warn('CuratedTrading marketplace request failed', error);
   } finally {
     state.loading = false;
     els.refresh.disabled = false;
@@ -246,7 +271,20 @@ els.dialog.addEventListener('click', (event) => {
   if (event.target === els.dialog) els.dialog.close();
 });
 
+window.addEventListener('online', () => {
+  if (!state.loading && els.grid.children.length === 0) loadMarket();
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !state.loading && els.grid.children.length === 0) {
+    loadMarket();
+  }
+});
+
 (async function boot() {
-  await checkHealth();
-  await loadMarket();
+  console.info(`CuratedTrading storefront ${APP_VERSION}`);
+  await Promise.allSettled([
+    checkHealth(),
+    loadMarket()
+  ]);
 })();
