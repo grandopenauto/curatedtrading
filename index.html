@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="CuratedTrading discovers big, bulk, industrial, unusual and high-value inventory — pallets, heavy equipment, commercial assets and oversized marketplace opportunities." />
+  <meta name="theme-color" content="#111315" />
+  <title>CuratedTrading — Find the big stuff.</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css?v=1.0.0" />
+</head>
+<body>
+  <div class="topline">
+    <div class="shell topline-inner">
+      <span>CURATED MARKET INTELLIGENCE</span>
+      <span id="api-status" class="api-status"><i></i> connecting marketplace</span>
+    </div>
+  </div>
+
+  <header class="site-header">
+    <div class="shell header-inner">
+      <a class="brand" href="#top" aria-label="CuratedTrading home">
+        <span class="brand-mark">CT</span>
+        <span class="brand-copy"><strong>Curated</strong><em>Trading</em></span>
+      </a>
+      <nav class="nav" aria-label="Primary navigation">
+        <a href="#market">Marketplace</a>
+        <a href="#lanes">Lanes</a>
+        <a href="#method">How we curate</a>
+      </nav>
+      <a class="header-cta" href="#market">Hunt inventory</a>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="hero-grid"></div>
+      <div class="hero-oversize">BIG</div>
+      <div class="shell hero-inner">
+        <div class="hero-copy">
+          <p class="eyebrow">Pallets · Machinery · Commercial Assets · The Unusual</p>
+          <h1>Find the<br><span>big stuff.</span></h1>
+          <p class="hero-lede">A marketplace built to surface inventory that ordinary shopping feeds bury — bulk lots, heavy equipment, industrial assets, wholesale opportunities, and strange high-value finds.</p>
+          <form id="hero-search" class="hero-search" autocomplete="off">
+            <input id="hero-query" type="search" placeholder="Try: excavator, pallet lot, forklift, crane, CNC..." aria-label="Search CuratedTrading" />
+            <button type="submit">Search marketplace <span>→</span></button>
+          </form>
+          <div class="quick-links" aria-label="Popular searches">
+            <button data-query="excavator">Excavators</button>
+            <button data-query="crane">Cranes</button>
+            <button data-query="pallet wholesale lot">Pallet lots</button>
+            <button data-query="forklift">Forklifts</button>
+            <button data-query="shipping container">Containers</button>
+          </div>
+        </div>
+        <aside class="hero-card" aria-label="CuratedTrading focus">
+          <div class="hero-card-kicker">THE CURATED SIGNAL</div>
+          <div class="metric"><strong>$10K+</strong><span>high-ticket bias</span></div>
+          <div class="metric"><strong>BULK</strong><span>lots, pallets & quantity</span></div>
+          <div class="metric"><strong>ODD</strong><span>hard-to-discover assets</span></div>
+          <div class="metric"><strong>HEAVY</strong><span>equipment & machinery</span></div>
+          <p>We rank for scale, commercial usefulness, unusualness, and transaction value — not just popularity.</p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="signal-bar" aria-label="Marketplace focus">
+      <div class="ticker">
+        <span>PALLETS</span><b>×</b><span>EXCAVATORS</span><b>×</b><span>CRANES</span><b>×</b><span>INDUSTRIAL SURPLUS</span><b>×</b><span>TRAILERS</span><b>×</b><span>CNC MACHINERY</span><b>×</b><span>WHOLESALE LOTS</span><b>×</b><span>CONTAINERS</span>
+      </div>
+    </section>
+
+    <section id="lanes" class="section lanes-section">
+      <div class="shell">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow dark">DISCOVERY LANES</p>
+            <h2>Start where normal shopping stops.</h2>
+          </div>
+          <p>Each lane starts with a different commercial intent. Pick one and CuratedTrading widens the search while keeping the signal focused.</p>
+        </div>
+        <div id="lane-grid" class="lane-grid">
+          <button class="lane-card" data-lane="heavy-equipment"><span class="lane-num">01</span><strong>Heavy Equipment</strong><small>Excavators, loaders, dozers, skid steers, cranes</small><em>EXPLORE →</em></button>
+          <button class="lane-card" data-lane="pallets"><span class="lane-num">02</span><strong>Pallets & Bulk Lots</strong><small>Wholesale lots, liquidation, truckload and pallet inventory</small><em>EXPLORE →</em></button>
+          <button class="lane-card" data-lane="industrial"><span class="lane-num">03</span><strong>Industrial Machinery</strong><small>CNC, lathes, mills, compressors, generators and production assets</small><em>EXPLORE →</em></button>
+          <button class="lane-card" data-lane="commercial"><span class="lane-num">04</span><strong>Commercial Mobility</strong><small>Trailers, work trucks, utility vehicles and material handling</small><em>EXPLORE →</em></button>
+          <button class="lane-card" data-lane="agriculture"><span class="lane-num">05</span><strong>Agriculture</strong><small>Tractors, implements, attachments and farm equipment</small><em>EXPLORE →</em></button>
+          <button class="lane-card accent" data-lane="oddities"><span class="lane-num">06</span><strong>Oversized Oddities</strong><small>The expensive, strange, scarce, hard-to-classify stuff</small><em>SHOW ME WEIRD →</em></button>
+        </div>
+      </div>
+    </section>
+
+    <section id="market" class="section market-section">
+      <div class="shell">
+        <div class="market-head">
+          <div>
+            <p class="eyebrow">LIVE MARKETPLACE</p>
+            <h2 id="market-title">Curated big-ticket discoveries</h2>
+          </div>
+          <div class="market-controls">
+            <label>Minimum value
+              <select id="min-price">
+                <option value="0">Any price</option>
+                <option value="1000">$1,000+</option>
+                <option value="5000" selected>$5,000+</option>
+                <option value="10000">$10,000+</option>
+                <option value="25000">$25,000+</option>
+                <option value="50000">$50,000+</option>
+              </select>
+            </label>
+            <button id="refresh-market" class="ghost-button">Refresh</button>
+          </div>
+        </div>
+
+        <div id="market-message" class="market-message">Loading curated inventory…</div>
+        <div id="market-grid" class="market-grid" aria-live="polite"></div>
+        <div class="market-more-wrap">
+          <button id="load-more" class="load-more" hidden>Load more discoveries</button>
+        </div>
+        <p class="affiliate-note">Marketplace listings may link to eBay. CuratedTrading may earn a commission from qualifying purchases at no additional cost to you.</p>
+      </div>
+    </section>
+
+    <section id="method" class="section method-section">
+      <div class="shell method-grid">
+        <div class="method-copy">
+          <p class="eyebrow dark">WHY CURATEDTRADING</p>
+          <h2>Shopping feeds optimize for clicks. We optimize for opportunity.</h2>
+          <p>CuratedTrading is built for people who are willing to look at things that are too large, too specialized, too industrial, too niche, or simply too weird for a typical storefront.</p>
+        </div>
+        <div class="method-steps">
+          <article><span>1</span><div><strong>Discover</strong><p>Search broad marketplace inventory across commercial and unusual lanes.</p></div></article>
+          <article><span>2</span><div><strong>Score</strong><p>Weight size, price, bulk signals, commercial utility, rarity and listing quality.</p></div></article>
+          <article><span>3</span><div><strong>Surface</strong><p>Push the strongest opportunities forward without making you dig through the noise.</p></div></article>
+          <article><span>4</span><div><strong>Trade</strong><p>Send you to the original marketplace listing to inspect, bid, negotiate or buy.</p></div></article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="shell footer-inner">
+      <div class="brand footer-brand"><span class="brand-mark">CT</span><span class="brand-copy"><strong>Curated</strong><em>Trading</em></span></div>
+      <p>Big. Bulk. Industrial. Unusual.</p>
+      <p class="footer-meta">© <span id="year"></span> CuratedTrading · Marketplace discovery by Highest Degree Priorities</p>
+    </div>
+  </footer>
+
+  <dialog id="detail-dialog" class="detail-dialog">
+    <button id="detail-close" class="detail-close" aria-label="Close">×</button>
+    <div id="detail-content"></div>
+  </dialog>
+
+  <script src="app.js?v=1.0.0" defer></script>
+</body>
+</html>
