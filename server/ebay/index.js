@@ -18,6 +18,7 @@ const RATE_LIMIT_PER_MINUTE = Math.max(10, Number(process.env.RATE_LIMIT_PER_MIN
 const API_BASE = IS_SANDBOX ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com';
 const TOKEN_URL = `${API_BASE}/identity/v1/oauth2/token`;
 const SEARCH_URL = `${API_BASE}/buy/browse/v1/item_summary/search`;
+const ITEM_URL = `${API_BASE}/buy/browse/v1/item`;
 const ALLOWED_ORIGINS = new Set(String(process.env.ALLOWED_ORIGINS || 'https://curatedtrading.com,https://www.curatedtrading.com').split(',').map(x => x.trim()).filter(Boolean));
 
 const LANES = {
@@ -166,6 +167,30 @@ function affiliateUrl(rawUrl, lane) {
   }
 }
 
+function normalizeMoney(value) {
+  if (!value || value.value == null) return null;
+  return { value: value.value, currency: value.currency || 'USD' };
+}
+
+function normalizeSeller(seller) {
+  if (!seller) return null;
+  return {
+    username: seller.username || null,
+    feedbackScore: seller.feedbackScore ?? null,
+    feedbackPercentage: seller.feedbackPercentage ?? null
+  };
+}
+
+function normalizeLocation(location) {
+  if (!location) return {};
+  return {
+    city: location.city || null,
+    stateOrProvince: location.stateOrProvince || null,
+    postalCode: location.postalCode || null,
+    country: location.country || null
+  };
+}
+
 function normalizeItem(item) {
   const lane = detectLane(item?.title);
   const scored = scoreItem(item);
@@ -173,23 +198,102 @@ function normalizeItem(item) {
   return {
     id: item?.itemId || null,
     title: item?.title || null,
-    price: item?.price ? { value: item.price.value ?? null, currency: item.price.currency || 'USD' } : null,
+    price: normalizeMoney(item?.price),
     image,
     imageUrl: image,
     condition: item?.condition || null,
     buyingOptions: Array.isArray(item?.buyingOptions) ? item.buyingOptions : [],
     itemWebUrl: item?.itemWebUrl || null,
     affiliateUrl: affiliateUrl(item?.itemWebUrl, lane.key),
-    seller: item?.seller ? {
-      username: item.seller.username || null,
-      feedbackScore: item.seller.feedbackScore ?? null,
-      feedbackPercentage: item.seller.feedbackPercentage ?? null
+    seller: normalizeSeller(item?.seller),
+    itemLocation: normalizeLocation(item?.itemLocation),
+    curatedLane: lane.label,
+    curatedLaneKey: lane.key,
+    curatedScore: scored.score,
+    curatedSignals: scored.signals
+  };
+}
+
+function normalizeDetail(item) {
+  const lane = detectLane(item?.title);
+  const scored = scoreItem(item);
+  const images = [
+    item?.image?.imageUrl,
+    ...(Array.isArray(item?.additionalImages) ? item.additionalImages.map(image => image?.imageUrl) : []),
+    ...(Array.isArray(item?.thumbnailImages) ? item.thumbnailImages.map(image => image?.imageUrl) : [])
+  ].filter(Boolean);
+  const uniqueImages = [...new Set(images)].slice(0, 16);
+  const aspects = Array.isArray(item?.localizedAspects)
+    ? item.localizedAspects.map(aspect => ({ name: aspect?.name || null, value: aspect?.value || null })).filter(aspect => aspect.name && aspect.value).slice(0, 40)
+    : [];
+  const shippingOptions = Array.isArray(item?.shippingOptions)
+    ? item.shippingOptions.map(option => ({
+        type: option?.type || null,
+        shippingCost: normalizeMoney(option?.shippingCost),
+        shippingCostType: option?.shippingCostType || null,
+        minEstimatedDeliveryDate: option?.minEstimatedDeliveryDate || null,
+        maxEstimatedDeliveryDate: option?.maxEstimatedDeliveryDate || null,
+        guaranteedDelivery: option?.guaranteedDelivery ?? null
+      })).slice(0, 8)
+    : [];
+  const estimatedAvailabilities = Array.isArray(item?.estimatedAvailabilities)
+    ? item.estimatedAvailabilities.map(value => ({
+        status: value?.estimatedAvailabilityStatus || null,
+        quantity: value?.estimatedAvailableQuantity ?? null,
+        soldQuantity: value?.estimatedSoldQuantity ?? null,
+        availabilityThreshold: value?.availabilityThreshold ?? null,
+        availabilityThresholdType: value?.availabilityThresholdType || null
+      })).slice(0, 4)
+    : [];
+  const returnTerms = item?.returnTerms ? {
+    returnsAccepted: item.returnTerms.returnsAccepted ?? null,
+    returnPeriod: item.returnTerms.returnPeriod ? {
+      value: item.returnTerms.returnPeriod.value ?? null,
+      unit: item.returnTerms.returnPeriod.unit || null
     } : null,
-    itemLocation: item?.itemLocation ? {
-      city: item.itemLocation.city || null,
-      stateOrProvince: item.itemLocation.stateOrProvince || null,
-      country: item.itemLocation.country || null
-    } : {},
+    refundMethod: item.returnTerms.refundMethod || null,
+    returnMethod: item.returnTerms.returnMethod || null,
+    returnShippingCostPayer: item.returnTerms.returnShippingCostPayer || null
+  } : null;
+  const marketingPrice = item?.marketingPrice ? {
+    originalPrice: normalizeMoney(item.marketingPrice.originalPrice),
+    discountAmount: normalizeMoney(item.marketingPrice.discountAmount),
+    discountPercentage: item.marketingPrice.discountPercentage ?? null,
+    priceTreatment: item.marketingPrice.priceTreatment || null
+  } : null;
+
+  return {
+    id: item?.itemId || null,
+    legacyItemId: item?.legacyItemId || null,
+    title: item?.title || null,
+    subtitle: item?.subtitle || null,
+    shortDescription: safeText(item?.shortDescription, 4000) || null,
+    price: normalizeMoney(item?.price),
+    marketingPrice,
+    image: uniqueImages[0] || null,
+    imageUrl: uniqueImages[0] || null,
+    images: uniqueImages,
+    condition: item?.condition || null,
+    conditionDescription: safeText(item?.conditionDescription, 1600) || null,
+    buyingOptions: Array.isArray(item?.buyingOptions) ? item.buyingOptions : [],
+    itemWebUrl: item?.itemWebUrl || null,
+    affiliateUrl: affiliateUrl(item?.itemWebUrl, lane.key),
+    seller: normalizeSeller(item?.seller),
+    itemLocation: normalizeLocation(item?.itemLocation),
+    categoryPath: item?.categoryPath || null,
+    brand: item?.brand || null,
+    mpn: item?.mpn || null,
+    gtin: item?.gtin || null,
+    epid: item?.epid || null,
+    color: item?.color || null,
+    size: item?.size || null,
+    aspects,
+    shippingOptions,
+    estimatedAvailabilities,
+    returnTerms,
+    itemCreationDate: item?.itemCreationDate || null,
+    itemEndDate: item?.itemEndDate || null,
+    topRatedBuyingExperience: item?.topRatedBuyingExperience ?? null,
     curatedLane: lane.label,
     curatedLaneKey: lane.key,
     curatedScore: scored.score,
@@ -222,11 +326,28 @@ async function getToken() {
   return tokenCache.token;
 }
 
+async function ebayGet(url, timeoutMs = 22000) {
+  const token = await getToken();
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'X-EBAY-C-MARKETPLACE-ID': MARKETPLACE,
+      Accept: 'application/json'
+    },
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const upstream = payload?.errors?.[0];
+    throw Object.assign(new Error(upstream?.message || `eBay Browse failed (${response.status})`), { status: response.status === 404 ? 404 : 502 });
+  }
+  return payload;
+}
+
 async function browse({ query, minPrice = 0, offset = 0, limit = 50 }) {
   const descriptor = `${EBAY_ENV}|${query}|${minPrice}|${offset}|${limit}`;
   const cached = responseCache.get(descriptor);
   if (cached && cached.expiresAt > Date.now()) return cached.payload;
-  const token = await getToken();
   const url = new URL(SEARCH_URL);
   url.searchParams.set('q', safeText(query, 120));
   url.searchParams.set('limit', String(Math.min(50, Math.max(1, limit))));
@@ -234,19 +355,17 @@ async function browse({ query, minPrice = 0, offset = 0, limit = 50 }) {
   if (minPrice > 0 && !IS_SANDBOX) {
     url.searchParams.set('filter', `price:[${minPrice}..],priceCurrency:USD`);
   }
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'X-EBAY-C-MARKETPLACE-ID': MARKETPLACE,
-      Accept: 'application/json'
-    },
-    signal: AbortSignal.timeout(22000)
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const upstream = payload?.errors?.[0];
-    throw Object.assign(new Error(upstream?.message || `eBay Browse failed (${response.status})`), { status: 502 });
-  }
+  const payload = await ebayGet(url, 22000);
+  responseCache.set(descriptor, { payload, expiresAt: Date.now() + CACHE_SECONDS * 1000 });
+  return payload;
+}
+
+async function getItemDetail(itemId) {
+  const descriptor = `${EBAY_ENV}|item|${itemId}`;
+  const cached = responseCache.get(descriptor);
+  if (cached && cached.expiresAt > Date.now()) return cached.payload;
+  const url = `${ITEM_URL}/${encodeURIComponent(itemId)}`;
+  const payload = await ebayGet(url, 22000);
   responseCache.set(descriptor, { payload, expiresAt: Date.now() + CACHE_SECONDS * 1000 });
   return payload;
 }
@@ -335,6 +454,16 @@ app.get('/api/commerce/curated/search', async (req, res, next) => {
       nextOffset,
       items
     });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/commerce/curated/item/:id', async (req, res, next) => {
+  try {
+    const itemId = safeText(req.params.id, 220);
+    if (!itemId) return res.status(400).json({ error: 'item_id_required' });
+    const rawItem = await getItemDetail(itemId);
+    const item = normalizeDetail(rawItem);
+    res.json({ ok: true, environment: EBAY_ENV, item });
   } catch (error) { next(error); }
 });
 
