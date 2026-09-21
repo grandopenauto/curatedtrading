@@ -1,5 +1,5 @@
 const API_BASE = 'https://api.curatedtrading.com';
-const APP_VERSION = '1.0.1';
+const APP_VERSION = '1.1.0';
 
 const state = {
   mode: 'featured',
@@ -9,6 +9,7 @@ const state = {
   nextOffset: null,
   hasMore: false,
   loading: false,
+  detailRequest: 0,
   items: new Map()
 };
 
@@ -55,7 +56,20 @@ function safe(value) {
 
 function itemLocation(item) {
   const loc = item.itemLocation || {};
-  return [loc.city, loc.stateOrProvince, loc.country].filter(Boolean).join(', ') || 'Location varies';
+  return [loc.city, loc.stateOrProvince, loc.postalCode, loc.country].filter(Boolean).join(', ') || 'Location varies';
+}
+
+function humanize(value) {
+  return String(value || '')
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function dateText(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
 }
 
 function sleep(ms) {
@@ -138,40 +152,139 @@ function renderCard(item) {
     </article>`;
 }
 
-function bindDetailButtons() {
-  document.querySelectorAll('[data-detail-id]').forEach((button) => {
-    button.addEventListener('click', () => openDetail(state.items.get(button.dataset.detailId)));
+function renderShipping(option) {
+  const type = humanize(option?.type || option?.shippingCostType || 'Shipping');
+  const costValue = Number(option?.shippingCost?.value);
+  const cost = option?.shippingCost
+    ? (Number.isFinite(costValue) && costValue === 0 ? 'Free' : money(option.shippingCost))
+    : 'Cost shown by seller';
+  const min = dateText(option?.minEstimatedDeliveryDate);
+  const max = dateText(option?.maxEstimatedDeliveryDate);
+  const delivery = min && max ? `${min} – ${max}` : min || max || '';
+  return `<div class="detail-shipping-row"><strong>${safe(type)}</strong><span>${safe(cost)}</span>${delivery ? `<small>Estimated ${safe(delivery)}</small>` : ''}</div>`;
+}
+
+function renderDetail(item, { loading = false, detailError = '' } = {}) {
+  const images = [...new Set([...(Array.isArray(item.images) ? item.images : []), item.image, item.imageUrl].filter(Boolean))];
+  const primaryImage = images[0] || '';
+  const signals = Array.isArray(item.curatedSignals) && item.curatedSignals.length ? item.curatedSignals : ['Curated marketplace match'];
+  const buyingOptions = Array.isArray(item.buyingOptions) && item.buyingOptions.length ? item.buyingOptions.map(humanize).join(' · ') : 'See listing';
+  const seller = item.seller?.username || 'Marketplace seller';
+  const feedbackParts = [];
+  if (item.seller?.feedbackPercentage != null) feedbackParts.push(`${item.seller.feedbackPercentage}% positive`);
+  if (item.seller?.feedbackScore != null) feedbackParts.push(`${Number(item.seller.feedbackScore).toLocaleString()} feedback`);
+  const sellerFeedback = feedbackParts.join(' · ');
+  const condition = item.condition || 'See listing';
+  const outbound = item.affiliateUrl || item.itemWebUrl || '#';
+  const score = Math.round(Number(item.curatedScore || 0));
+  const aspects = Array.isArray(item.aspects) ? item.aspects.slice(0, 30) : [];
+  const shipping = Array.isArray(item.shippingOptions) ? item.shippingOptions : [];
+  const availability = Array.isArray(item.estimatedAvailabilities) ? item.estimatedAvailabilities[0] : null;
+  const returnTerms = item.returnTerms || null;
+  const description = item.shortDescription || item.conditionDescription || '';
+  const originalPrice = item.marketingPrice?.originalPrice;
+  const discount = item.marketingPrice?.discountPercentage;
+  const availabilityLabel = availability?.status ? humanize(availability.status) : '';
+  const quantityLabel = availability?.quantity != null ? `${availability.quantity} estimated available` : '';
+  const returnsLabel = returnTerms?.returnsAccepted === true
+    ? `Returns accepted${returnTerms.returnPeriod?.value ? ` · ${returnTerms.returnPeriod.value} ${String(returnTerms.returnPeriod.unit || 'day').toLowerCase()}${Number(returnTerms.returnPeriod.value) === 1 ? '' : 's'}` : ''}`
+    : returnTerms?.returnsAccepted === false ? 'Seller does not accept returns' : '';
+
+  return `
+    <div class="detail-shell">
+      <div class="detail-top">
+        <div class="detail-gallery">
+          <div class="detail-main-media">
+            ${primaryImage ? `<img id="detail-main-image" src="${safe(primaryImage)}" alt="${safe(item.title)}" referrerpolicy="no-referrer" />` : '<div class="detail-image-empty">No listing image</div>'}
+          </div>
+          ${images.length > 1 ? `<div class="detail-thumbs" aria-label="Listing photos">${images.map((image, index) => `<button type="button" class="detail-thumb${index === 0 ? ' active' : ''}" data-gallery-src="${safe(image)}" aria-label="View listing photo ${index + 1}"><img src="${safe(image)}" alt="" loading="lazy" referrerpolicy="no-referrer" /></button>`).join('')}</div>` : ''}
+          <p class="detail-photo-note">Listing imagery shown uncropped so you can inspect more of the asset.</p>
+        </div>
+
+        <div class="detail-info">
+          <p class="eyebrow">${safe((item.curatedLane || 'CURATED DISCOVERY').toUpperCase())}</p>
+          <h3>${safe(item.title || 'Marketplace discovery')}</h3>
+          ${item.subtitle ? `<p class="detail-subtitle">${safe(item.subtitle)}</p>` : ''}
+          <div class="detail-price-row">
+            <div class="detail-price">${safe(money(item.price))}</div>
+            ${originalPrice ? `<div class="detail-original-price">${safe(money(originalPrice))}${discount != null ? ` · ${safe(discount)}% off` : ''}</div>` : ''}
+          </div>
+
+          <div class="detail-signal-chips">${signals.map(signal => `<span>${safe(signal)}</span>`).join('')}</div>
+
+          <div class="detail-list">
+            <div><small>Curated score</small><strong>${safe(score || '—')} / 100</strong></div>
+            <div><small>Condition</small><strong>${safe(condition)}</strong></div>
+            <div><small>Buying format</small><strong>${safe(buyingOptions)}</strong></div>
+            <div><small>Location</small><strong>${safe(itemLocation(item))}</strong></div>
+            <div><small>Seller</small><strong>${safe(seller)}</strong>${sellerFeedback ? `<span>${safe(sellerFeedback)}</span>` : ''}</div>
+            <div><small>Availability</small><strong>${safe(availabilityLabel || quantityLabel || 'Check listing')}</strong>${availabilityLabel && quantityLabel ? `<span>${safe(quantityLabel)}</span>` : ''}</div>
+          </div>
+
+          ${loading ? '<div class="detail-load-state">Loading full listing specifications…</div>' : ''}
+          ${detailError ? `<div class="detail-load-state warning">Full specifications could not be loaded. Summary details are still available.</div>` : ''}
+          <a class="detail-ebay" href="${safe(outbound)}" target="_blank" rel="noopener sponsored">Inspect original listing →</a>
+        </div>
+      </div>
+
+      <div class="detail-extra">
+        ${description ? `<section class="detail-section"><p class="detail-section-kicker">ABOUT THIS LISTING</p><h4>Listing summary</h4><p class="detail-description">${safe(description)}</p></section>` : ''}
+
+        <section class="detail-section detail-facts-section">
+          <p class="detail-section-kicker">MARKETPLACE DATA</p>
+          <h4>Asset details</h4>
+          <div class="detail-facts">
+            ${item.brand ? `<div><small>Brand</small><strong>${safe(item.brand)}</strong></div>` : ''}
+            ${item.mpn ? `<div><small>MPN / Part no.</small><strong>${safe(item.mpn)}</strong></div>` : ''}
+            ${item.gtin ? `<div><small>GTIN</small><strong>${safe(item.gtin)}</strong></div>` : ''}
+            ${item.categoryPath ? `<div><small>Category</small><strong>${safe(item.categoryPath)}</strong></div>` : ''}
+            ${item.itemEndDate ? `<div><small>Listing ends</small><strong>${safe(dateText(item.itemEndDate))}</strong></div>` : ''}
+            ${returnsLabel ? `<div><small>Returns</small><strong>${safe(returnsLabel)}</strong></div>` : ''}
+            ${item.topRatedBuyingExperience === true ? '<div><small>Marketplace signal</small><strong>Top-rated buying experience</strong></div>' : ''}
+            ${item.id ? `<div><small>Listing ID</small><strong>${safe(item.id)}</strong></div>` : ''}
+          </div>
+        </section>
+
+        ${aspects.length ? `<section class="detail-section"><p class="detail-section-kicker">SPECIFICATIONS</p><h4>Item specifics</h4><div class="detail-spec-grid">${aspects.map(aspect => `<div><small>${safe(aspect.name)}</small><strong>${safe(aspect.value)}</strong></div>`).join('')}</div></section>` : ''}
+
+        ${shipping.length ? `<section class="detail-section"><p class="detail-section-kicker">DELIVERY</p><h4>Shipping options</h4><div class="detail-shipping">${shipping.map(renderShipping).join('')}</div></section>` : ''}
+      </div>
+    </div>`;
+}
+
+function bindDetailGallery() {
+  const mainImage = document.querySelector('#detail-main-image');
+  if (!mainImage) return;
+  document.querySelectorAll('[data-gallery-src]').forEach((button) => {
+    button.addEventListener('click', () => {
+      mainImage.src = button.dataset.gallerySrc;
+      document.querySelectorAll('.detail-thumb').forEach(thumb => thumb.classList.remove('active'));
+      button.classList.add('active');
+    });
   });
 }
 
-function openDetail(item) {
+async function openDetail(item) {
   if (!item) return;
-  const image = item.image || item.imageUrl || '';
-  const signals = Array.isArray(item.curatedSignals) ? item.curatedSignals.join(' · ') : 'Curated marketplace match';
-  const options = Array.isArray(item.buyingOptions) ? item.buyingOptions.join(', ') : 'See listing';
-  const seller = item.seller?.username || 'Marketplace seller';
-  const condition = item.condition || 'See listing';
-  const outbound = item.affiliateUrl || item.itemWebUrl || '#';
-  els.dialogContent.innerHTML = `
-    <div class="detail-layout">
-      <div class="detail-media">${image ? `<img src="${safe(image)}" alt="${safe(item.title)}" referrerpolicy="no-referrer" />` : ''}</div>
-      <div class="detail-info">
-        <p class="eyebrow">${safe((item.curatedLane || 'CURATED DISCOVERY').toUpperCase())}</p>
-        <h3>${safe(item.title || 'Marketplace discovery')}</h3>
-        <div class="detail-price">${safe(money(item.price))}</div>
-        <p>${safe(signals)}</p>
-        <div class="detail-list">
-          <div><small>Curated score</small><strong>${safe(Math.round(Number(item.curatedScore || 0)))} / 100</strong></div>
-          <div><small>Condition</small><strong>${safe(condition)}</strong></div>
-          <div><small>Seller</small><strong>${safe(seller)}</strong></div>
-          <div><small>Buying format</small><strong>${safe(options)}</strong></div>
-          <div><small>Location</small><strong>${safe(itemLocation(item))}</strong></div>
-          <div><small>Source</small><strong>eBay marketplace</strong></div>
-        </div>
-        <a class="detail-ebay" href="${safe(outbound)}" target="_blank" rel="noopener sponsored">Inspect original listing →</a>
-      </div>
-    </div>`;
-  els.dialog.showModal();
+  const requestId = ++state.detailRequest;
+  els.dialogContent.innerHTML = renderDetail(item, { loading: true });
+  if (!els.dialog.open) els.dialog.showModal();
+  bindDetailGallery();
+
+  if (!item.id) return;
+  try {
+    const payload = await request(`/api/commerce/curated/item/${encodeURIComponent(item.id)}`, { retries: 1, timeoutMs: 24000 });
+    if (requestId !== state.detailRequest || !els.dialog.open) return;
+    const detailed = { ...item, ...(payload.item || {}) };
+    state.items.set(String(item.id), detailed);
+    els.dialogContent.innerHTML = renderDetail(detailed);
+    bindDetailGallery();
+  } catch (error) {
+    if (requestId !== state.detailRequest || !els.dialog.open) return;
+    console.warn('CuratedTrading listing detail request failed', error);
+    els.dialogContent.innerHTML = renderDetail(item, { detailError: error.message || 'detail request failed' });
+    bindDetailGallery();
+  }
 }
 
 function setLoading(on, text = 'Loading curated inventory…') {
@@ -210,7 +323,6 @@ async function loadMarket({ append = false } = {}) {
     const html = items.map(renderCard).join('');
     if (append) els.grid.insertAdjacentHTML('beforeend', html);
     else els.grid.innerHTML = html;
-    bindDetailButtons();
     state.nextOffset = payload.nextOffset ?? null;
     state.hasMore = Boolean(payload.hasMore && payload.nextOffset != null);
     els.more.hidden = !state.hasMore;
@@ -263,12 +375,24 @@ document.querySelectorAll('.lane-card[data-lane]').forEach((button) => {
   button.addEventListener('click', () => runLane(button.dataset.lane, button.querySelector('strong')?.textContent));
 });
 
+els.grid.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-detail-id]');
+  if (!button) return;
+  openDetail(state.items.get(button.dataset.detailId));
+});
+
 els.refresh.addEventListener('click', () => loadMarket());
 els.minPrice.addEventListener('change', () => loadMarket());
 els.more.addEventListener('click', () => loadMarket({ append: true }));
-els.dialogClose.addEventListener('click', () => els.dialog.close());
+els.dialogClose.addEventListener('click', () => {
+  state.detailRequest += 1;
+  els.dialog.close();
+});
 els.dialog.addEventListener('click', (event) => {
-  if (event.target === els.dialog) els.dialog.close();
+  if (event.target === els.dialog) {
+    state.detailRequest += 1;
+    els.dialog.close();
+  }
 });
 
 window.addEventListener('online', () => {
